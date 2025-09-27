@@ -1,111 +1,92 @@
-// modulo de ejemplo.
+// libs/unalib.js
+
+// Patrones simples para validaciones
+const FORBIDDEN = /(javascript:|data:text\/html|<\s*script\b|on\w+\s*=)/i;
+
+function trimMax(s, n) {
+  return String(s || '').trim().slice(0, n);
+}
+
+// ===== Validaciones utilitarias =====
+function is_valid_phone(phone) {
+  try {
+    const re = /^[+]*[(]{0,1}[0-9]{1,4}[)]{0,1}[-\s./0-9]*$/i;
+    return re.test(String(phone || ''));
+  } catch { return false; }
+}
+
+function is_valid_url_image(url) {
+  try {
+    const re = /(http(s?):)([/|.|\w|\s|-])*\.(?:jpg|jpeg|png|gif|bmp|webp|svg)$/i;
+    return re.test(String(url || ''));
+  } catch { return false; }
+}
+
+function is_valid_video_file(url) {
+  try {
+    const re = /(http(s?):)([/|.|\w|\s|-])*\.(?:mp4|webm|ogg)$/i;
+    return re.test(String(url || ''));
+  } catch { return false; }
+}
+
+function is_valid_yt_video(url) {
+  try {
+    // Devuelve true si parece un enlace válido de YouTube
+    const re = /^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})(?:[&#?].*)?$/i;
+    return re.test(String(url || ''));
+  } catch { return false; }
+}
+
+function getYTVideoId(url) {
+  const m = String(url || '').match(/^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
+  return m ? m[1] : null;
+}
+
+// ===== Normalización principal =====
+/**
+ * validateMessage
+ * @param {object|string} input  Objeto { nombre, mensaje, color } o string JSON con esas props
+ * @returns {{nombre:string,color:string,mensaje:string}|{error:string}}
+ */
+function validateMessage(input) {
+  let obj = input;
+
+  // Acepta string JSON por compatibilidad
+  if (typeof input === 'string') {
+    try {
+      obj = JSON.parse(input);
+    } catch {
+      return { error: 'json_invalido' };
+    }
+  }
+
+  // Campos base
+  const nombre = trimMax(obj?.nombre, 40) || 'Anonimo';
+  const color  = trimMax(obj?.color, 7);   // ej. "#A1B2C3"
+  const rawMsg = trimMax(obj?.mensaje, 500);
+
+  // Bloqueo básico XSS
+  if (!rawMsg || FORBIDDEN.test(rawMsg)) {
+    return { error: 'contenido_peligroso' };
+  }
+
+  // No devolvemos HTML. Sólo el texto normalizado.
+  // La UI (index + classify.js) se encarga de renderizar imagen/video/links de forma segura.
+  return {
+    nombre,
+    color,
+    mensaje: rawMsg
+  };
+}
 
 module.exports = {
+  // utilitarias (por si las usas en otro lado)
+  is_valid_phone,
+  is_valid_url_image,
+  is_valid_video_file,
+  is_valid_yt_video,
+  getYTVideoId,
 
-
-    // logica que valida si un telefono esta correcto...
-    is_valid_phone: function (phone) {
-      // inicializacion lazy
-      var isValid = false;
-      // expresion regular copiada de StackOverflow
-      var re = /^[+]*[(]{0,1}[0-9]{1,4}[)]{0,1}[-\s\./0-9]*$/i;
-  
-      // validacion Regex
-      try {
-        isValid = re.test(phone);
-      } catch (e) {
-        console.log(e);
-      } finally {
-          return isValid;
-      }
-      // fin del try-catch block
-    },
-  
-    is_valid_url_image: function (url) {
-  
-      // inicializacion lazy
-      var isValid = false;
-      // expresion regular copiada de StackOverflow
-      var re = /(http(s?):)([/|.|\w|\s|-])*\.(?:jpg|gif|png|jpeg|bmp)/i;
-  
-      // validacion Regex
-      try {
-        isValid = re.test(phone);
-      } catch (e) {
-        console.log(e);
-      } finally {
-          return isValid;
-      }
-      // fin del try-catch block
-    },
-  
-    is_valid_yt_video: function (url) {
-  
-      // inicializacion lazy
-      var isValid = false;
-      // expresion regular copiada de StackOverflow
-      var re = /^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))((\w|-){11})?$/i;
-  
-      // validacion Regex
-      try {
-        isValid = re.test(phone);
-      } catch (e) {
-        console.log(e);
-      } finally {
-          return isValid;
-      }
-      // fin del try-catch block
-    },
-  
-    getYTVideoId: function(url){
-  
-      return url.match(/(?:https?:\/{2})?(?:w{3}\.)?youtu(?:be)?\.(?:com|be)(?:\/watch\?v=|\/)([^\s&]+)/)[1];
-    },
-  
-    getEmbeddedCode: function (url){
-      var id = this.getYTVideoId(url);
-      var code = '<iframe width="560" height="315" src="https://www.youtube.com/embed/'+id+ '" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
-      return code;
-    },
-  
-    getImageTag: function(url){
-      var tag = '<img src="'+url+'" style="max-height: 400px;max-width: 400px;">';
-      return tag;
-    },
-  
-    validateMessage: function(msg){
-      // Handle invalid input
-      if (!msg || typeof msg !== 'string') {
-        return JSON.stringify({ mensaje: '' });
-      }
-
-      try {
-        var obj = JSON.parse(msg);
-  
-      if(this.is_valid_url_image(obj.mensaje)){
-        console.log("Es una imagen!")
-        obj.mensaje = this.getImageTag(obj.mensaje);
-      }
-      else if(this.is_valid_yt_video(obj.mensaje)){
-        console.log("Es un video!")
-        obj.mensaje = this.getEmbeddedCode(obj.mensaje);
-      }
-      else{
-        console.log("Es un texto!")
-      }
-      
-      return JSON.stringify(obj);
-      } catch (e) {
-        console.log('Error processing message:', e);
-        return JSON.stringify({ mensaje: msg }); // Return original message on error
-      }
-    }
-  
-  
-  
-    
-    
-  
-  // fin del modulo
-  };
-  
+  // principal
+  validateMessage,
+};
