@@ -3,18 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <title>Chat Socket.IO UNA</title>
+    <!-- Favicon embebido (opción 3) -->
+    <link rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>💬</text></svg>">
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { font: 13px Helvetica, Arial; }
       form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
-      form input { border: 0; padding: 10px;}
-      form button { width: 10%; background: rgb(130, 224, 255);  border: none; padding: 10px; cursor: pointer; }
-      #messages { list-style-type: none; margin: 0; padding: 0; margin-bottom: 40px }
+      form input { border: 0; padding: 10px; }
+      form button { width: 10%; background: rgb(130, 224, 255); border: none; padding: 10px; cursor: pointer; }
+      #messages { list-style-type: none; margin: 0; padding: 0; margin-bottom: 40px; }
       #messages li { padding: 5px 10px; }
       #messages li:nth-child(odd) { background: #eee; }
-      #nombre, #m { display: inline-block;}
-      #m {width: 69%; margin-right: 4px;}
-      #nombre {width: 20%}
+      #nombre, #m { display: inline-block; }
+      #m { width: 69%; margin-right: 4px; }
+      #nombre { width: 20%; }
       img, video, iframe { border-radius: 4px; }
     </style>
   </head>
@@ -27,24 +30,20 @@
       <button>Send</button>
     </form>
 
-    <!-- Librerías -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.js"></script>
+    <!-- Librerías base -->
+    <script src="/socket.io/socket.io.js"></script>
     <script src="https://code.jquery.com/jquery-1.11.1.js"></script>
 
-    <!-- Clasificador seguro (creado por ti en public/js/classify.js) -->
+    <!-- Clasificador seguro (se sirve desde /public/js) -->
     <script src="/js/classify.js"></script>
 
-    <!-- Código de la app -->
     <script>
       var colorHexTxt = "";
 
-      // genera colores aleatorios en hexadecimal
       function getRandomColor() {
         var letters = '0123456789ABCDEF';
         var color = '#';
-        for (var i = 0; i < 6; i++) {
-          color += letters[Math.floor(Math.random() * 16)];
-        }
+        for (var i = 0; i < 6; i++) color += letters[Math.floor(Math.random() * 16)];
         return color;
       }
 
@@ -56,41 +55,44 @@
           var nombreTxt = $('#nombre').val() || "Anonimo";
           var mensajeTxt = $('#m').val();
 
-          if (colorHexTxt === "") {
-            colorHexTxt = getRandomColor();
-          }
+          if (!mensajeTxt || !mensajeTxt.trim()) return false;
 
-          var jsonMsg = { nombre: nombreTxt, mensaje: mensajeTxt, color: colorHexTxt };
+          if (colorHexTxt === "") colorHexTxt = getRandomColor();
+
+          var jsonMsg = { nombre: nombreTxt, mensaje: mensajeTxt.trim(), color: colorHexTxt };
           socket.emit('Evento-Mensaje-Server', JSON.stringify(jsonMsg));
           $('#m').val('');
           return false;
         });
 
-        // Recibir y renderizar mensaje de forma SEGURA
+        // Recibir y renderizar mensaje (seguro + fallback)
         socket.on('Evento-Mensaje-Server', function(msg){
-          var msgJson = JSON.parse(msg);
+          var msgJson;
+          try { msgJson = JSON.parse(msg); }
+          catch (e) { console.error('No se pudo parsear el mensaje:', msg, e); return; }
 
-          // Contenedor del item
           var $li = $('<li>');
-
-          // Remitente
-          var $nombre = $('<b>')
-            .css('color', msgJson.color)
-            .text(msgJson.nombre + ': ');
+          var $nombre = $('<b>').css('color', msgJson.color || '#000')
+                                .text((msgJson.nombre || 'Anonimo') + ': ');
           $li.append($nombre);
 
-          // Clasificar contenido del mensaje
-          var c = window.ChatClassifier.classify(msgJson.mensaje);
+          var hasClassifier = window.ChatClassifier && typeof window.ChatClassifier.classify === 'function';
+          var c = hasClassifier
+            ? window.ChatClassifier.classify(msgJson.mensaje || '')
+            : { type: 'text', text: String(msgJson.mensaje || '') };
+
+          function esc(s){ return String(s).replace(/[<>]/g, m => m === '<' ? '&lt;' : '&gt;'); }
 
           if (c.type === 'image') {
             $li.append(
               $('<img>')
                 .attr('src', c.url)
                 .attr('alt', '')
-                .attr('loading', 'lazy')
-                .css({ maxWidth: '260px', display: 'block', marginTop: '4px' })
-                .on('error', function(){
-                  $(this).replaceWith($('<a>').attr('href', c.url).attr('target','_blank').text(c.url));
+                .attr('referrerpolicy','no-referrer')
+                .css({ maxWidth: '240px', display: 'block', marginTop: '4px' })
+                .on('error', function(e){
+                  console.error('Fallo al cargar imagen:', c.url, e);
+                  $(this).after($('<span>').text(' (no se pudo cargar la imagen)'));
                 })
             );
           } else if (c.type === 'video' && c.kind === 'file') {
@@ -103,33 +105,38 @@
             $li.append(
               $('<iframe>')
                 .attr('src', 'https://www.youtube-nocookie.com/embed/' + c.id)
-                .attr('loading', 'lazy')
                 .attr('allowfullscreen', true)
                 .attr('sandbox', 'allow-scripts allow-same-origin allow-presentation')
-                .css({ width: '320px', height: '200px', border: 'none', display: 'block', marginTop: '4px' })
+                .css({ width: '320px', height: '200px', display: 'block', marginTop: '4px', border: 'none' })
             );
-          } else if (c.type === 'video' && c.kind === 'vimeo') {
+          } else if (c.type === 'vimeo' && c.kind === 'vimeo') {
             $li.append(
               $('<iframe>')
                 .attr('src', 'https://player.vimeo.com/video/' + c.id)
-                .attr('loading', 'lazy')
                 .attr('allowfullscreen', true)
                 .attr('sandbox', 'allow-scripts allow-same-origin allow-presentation')
-                .css({ width: '320px', height: '200px', border: 'none', display: 'block', marginTop: '4px' })
+                .css({ width: '320px', height: '200px', display: 'block', marginTop: '4px', border: 'none' })
             );
           } else if (c.type === 'link') {
-            $li.append(
-              $('<a>')
-                .attr('href', c.url)
-                .attr('target', '_blank')
-                .text(c.url)
-            );
+            $li.append($('<a>').attr('href', c.url).attr('target','_blank').text(c.url));
           } else {
-            // Texto plano escapado (sin innerHTML)
-            $li.append(window.ChatClassifier.escapeAngles(c.text));
+            var txt = hasClassifier && window.ChatClassifier.escapeAngles
+              ? window.ChatClassifier.escapeAngles(c.text)
+              : esc(c.text);
+            $li.append(txt);
           }
 
           $('#messages').append($li);
+          window.scrollTo(0, document.body.scrollHeight);
+        });
+
+        // Aviso cuando el servidor bloquea un mensaje peligroso
+        socket.on('Evento-Mensaje-Rechazado', function(payload){
+          var motivo = (payload && payload.error) ? String(payload.error) : 'contenido_peligroso';
+          $('#messages').append(
+            $('<li>').css({ color:'#b00020', fontStyle:'italic' })
+                     .text('⚠️ Mensaje bloqueado por seguridad (' + motivo + ').')
+          );
           window.scrollTo(0, document.body.scrollHeight);
         });
 

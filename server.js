@@ -1,55 +1,84 @@
-// npm install para descargar los paquetes...
-
-// librerías
+// Librerías
 const express = require('express');
-const app = express();
-const http = require('http').Server(app);
-const io = require('socket.io')(http);
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 
-// tu lib de validación
+// Inicialización
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+// Validación del lado servidor
 const validation = require('./libs/unalib');
 
 const port = process.env.PORT || 3000;
 
-// 1) servir archivos estáticos (para /js/classify.js, css, imágenes, etc.)
+// Servir estáticos desde /public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 2) root: presentar html
-app.get('/', function(req, res){
+// HTML raíz
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// 3) escuchar una conexion por socket
-io.on('connection', function(socket){
+// Pequeño helper para escapar ángulos si necesitamos devolver texto plano
+function escapeAngles(s) {
+  return String(s).replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'));
+}
 
-  socket.on('Evento-Mensaje-Server', function(msgStr){
-    // Tus clientes envían un string JSON. Ej: {"nombre":"...","mensaje":"...","color":"#FF00AA"}
+// Socket.IO
+io.on('connection', (socket) => {
+  console.log('[socket] conectado');
+
+  socket.on('Evento-Mensaje-Server', (msgStr) => {
+    console.log('[socket] recibido (crudo):', msgStr);
+
+    // Llega como string JSON desde el cliente
     let parsed;
     try {
       parsed = JSON.parse(msgStr);
     } catch (e) {
-      return; // descartar si no es JSON válido
+      console.error('[socket] JSON inválido:', e.message);
+      socket.emit('Evento-Mensaje-Rechazado', { error: 'json_invalido' });
+      return;
     }
 
-    // 4) Normalizar/validar el mensaje (anti-XSS básico, long máx, etc.)
+    // Validar/normalizar para mitigar XSS
     const safe = validation.validateMessage(parsed);
     if (!safe || safe.error) {
-      return; // descartar contenido peligroso
+      const motivo = (safe && safe.error) || 'contenido_peligroso';
+      console.warn('[socket] mensaje bloqueado por seguridad:', motivo);
+
+      // 1) Notificar SOLO al emisor el motivo del bloqueo
+      socket.emit('Evento-Mensaje-Rechazado', { error: motivo });
+
+      // 2) (Opcional/útil en el lab) Enviar un mensaje de sistema visible al emisor
+      //    para que SIEMPRE se vea una reacción.
+      const nota = JSON.stringify({
+        nombre: 'Sistema',
+        color: '#b00020',
+        mensaje: `Mensaje bloqueado por seguridad (${motivo}).`
+      });
+      socket.emit('Evento-Mensaje-Server', nota);
+      return;
     }
 
-    // 5) Re-emite SIEMPRE un string JSON (tu cliente hace JSON.parse(msg))
+    // Reenviar a todos en el formato que el cliente espera (string JSON)
     const out = JSON.stringify({
       nombre: safe.nombre,
       color: safe.color,
       mensaje: safe.mensaje
     });
 
+    console.log('[socket] reenviando (seguro):', out);
     io.emit('Evento-Mensaje-Server', out);
   });
 
+  socket.on('disconnect', () => console.log('[socket] desconectado'));
 });
 
-http.listen(port, function(){
-  console.log('listening on *:' + port);
+// Levantar servidor
+server.listen(port, () => {
+  console.log(`Servidor en http://localhost:${port}`);
 });
